@@ -1,0 +1,16 @@
+{
+  "name": "4get.js",
+  "version": "0.0.1",
+  "description": "4get.js is a 4chan downloader written in NodeJs ",
+  "author": "jthatch",
+  "main": "4get.js",
+  "dependencies": {
+    "chalk": "~1.1.3",
+    "cheerio": "latest",
+    "commander": "~2.9.0",
+    "moment": "^2.14.1",
+    "neek": "^1.0.1",
+    "readline": "^1.3.0",
+    "request": "latest"
+  }
+}
