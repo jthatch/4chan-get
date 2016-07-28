@@ -3,6 +3,8 @@
 
 4chan-get is a lightweight NodeJS command line tool for downloading media from 4chan.org threads. As long as the thread isn't archived (meaning no new posts will be added) the script will watch the thread and download any new media that gets posted. 4chan-get is written and maintained by [jthatch](https://github.com/jthatch).
 
+![4get.js screenshot](http://wireside.co.uk/4get.png)
+
 ## Installation
 4chan-get requires NodeJS and NPM, both of which are available via your default package manager, e.g. apt-get or yum. To install 4chan-get with a few commands, open a terminal and enter the following:
 ```
