@@ -22,14 +22,19 @@ const chalk = require('chalk');
 const cheerio = require('cheerio');
 
 
-function Fourget() {
-	this.url = process.argv[2] || "http://boards.4chan.org/fit/thread/38047652/crossfit-cringe-thread";
-	this.workers = process.argv[3] || require('os').cpus().length;
-	this.concurrentDownloads = 8;
-	this.retryEvery = 3e3; // 30 secs
-	this.useOriginal = true;
+/**
+ * This follows the observer design pattern. We take arguments first from options, then argv then resort to defaults
+ * @constructor
+ */
+function Fourget(options) {
+	options = options || {};
+	this.url = options.url || process.argv[2] || false;
+	this.workers = options.workers || process.argv[3] || require('os').cpus().length;
+	this.concurrentDownloads = options.concurrentDownloads || process.argv[4] || 8;
+	this.retryEvery = 30e3; // 30 secs
+	this.useOriginal = true; // use original names
 
-	// hard limit
+	// hard limit, feel free to remove this, but I find anymore than 4 is overkill
 	if (this.workers > 4)
 		this.workers = 4;
 
@@ -45,6 +50,11 @@ function Fourget() {
 	this._watch = true;
 	this._downloaded = 0;
 	this._startTime = new Date().getTime();
+	/**
+	 * If an image is called image.jpg we will use the 4chan generated filename.
+	 * Many 4chan mobile apps default the upload image filename to image.jpg.
+	 */
+	this._ignoreOriginalFileName = ['image.jpg','image.png','image.gif','image.webm'];
 
 	EventEmitter.call(this);
 }
@@ -181,6 +191,7 @@ Fourget.prototype.main = function() {
 Fourget.prototype.dispatchDownload = function(id) {
 	var _this = this;
 
+	// If we still have files available to download, send them to the worker id
 	if (this._files.length) {
 		var file = this._files.shift();
 		this.broadcastToWorkers(id, 'downloadFile', file);
@@ -196,11 +207,11 @@ Fourget.prototype.dispatchDownload = function(id) {
 			}
 			else {
 				this._workersFinished = 0;
-				this._runEvery = setInterval(function(){_this.fetch()}, this.retryEvery);
+				setTimeout(function(){_this.fetch()}, this.retryEvery);
 				_this.log();
 				_this.log("c:blue bold", "Downloaded " + _this._downloaded + " files in " + _this.runTime());
 				_this.log();
-				_this.log('c:cyan bold', 'Trying thread again in ' + _this.retryEvery + " seconds");
+				_this.log('c:cyan bold', 'Trying thread again in ' + _this.runTime(new Date().getTime() - _this.retryEvery));
 			}
 
 		}
@@ -232,10 +243,10 @@ Fourget.prototype.downloadFile = function(fileData) {
 		fileStream.on('close', function() {
 			_this.emit('downloadFile', {url: url, fileName: fileName, duration: startTime});
 		});
-		request
-			.get(url)
+		request(url,
+			{timeout: 5000})
 			.on('error', function(err) {
-				_this.log(err);
+				//_this.log(err);
 				_this.emit('skippedFile', {url: url, fileName: fileName});
 			})
 			.pipe(fileStream);
@@ -268,32 +279,21 @@ Fourget.prototype.parse = function(html) {
 
 	var $ = cheerio.load(html);
 	var files = [];
-	/*
-	 <div class="file" id="f6581245">
-	 <div class="fileText" id="fT6581245">
-	 File: <a href="//i.4cdn.org/wg/1464147906056.jpg" target="_blank">423567971.jpg</a> (331 KB, 1920x1080)
-	 </div>
-	 <a class="fileThumb" href="//i.4cdn.org/wg/1464147906056.jpg" target="_blank">
-	 <img src="//i.4cdn.org/wg/1464147906056s.jpg" alt="331 KB" data-md5="e3K+/kqjwyn58B86sDw4+w==" style="height: 140px; width: 250px;">
-	 <div data-tip="" data-tip-cb="mShowFull" class="mFileInfo mobile">331 KB JPG</div>
-	 </a>
-	 </div>
-	 */
 
 	$('div.file').each(function(){
 		var a = $(this),
 			url = 'http:' + a.find('a.fileThumb').attr('href');
-		var fileName;
+		// Default to the 4chan generated filename
+		var fileName = url.split('/')[4];
 
+		// if we want to use the user uploaded filename we can grab it from either the title attrib or the a text
 		if (_this.useOriginal) {
-			if (! (fileName = a.find('div.fileText > a').attr('title')))
-				fileName = a.find('div.fileText > a').text();
-		}
-		else
-			var fileName = url.split('/')[4];
-		//console.log('url: ' + url);
-		//console.log('fileName: ' + fileName);
+			var newFileName = a.find('div.fileText > a').attr('title') || a.find('div.fileText > a').text();
 
+			// now make sure it isn't in our ignore list
+			if (_this._ignoreOriginalFileName.indexOf(newFileName) == -1)
+				fileName = newFileName;
+		}
 		files.push([url, fileName]);
 	});
 
@@ -471,18 +471,19 @@ Fourget.prototype.runTime = function(startTime) {
 Fourget.prototype.usage = function() {
 	var _this = this;
 	_this.log();
-	_this.log('c:bold', '4get.js ( http://github.com/jthatch/4chan-get )');
-	_this.log();
 	_this.log('c:bold','Usage: ./4get.js [thread] {workers} {concurrentDownloads}')
-	_this.log('\t{} are optional.');
-	_this.log('\t{workers} defaults to the no. of CPU cores on your machine');
-	_this.log('\t{concurrentDownloads} defaults to 8');
-	_this.log('Examples:');
+	_this.log('\t[] are required, {} are optional.');
+	_this.log('\t[thread]              - 4chan thread URL');
+	_this.log('\t{workers}             - CPU cores to use, set by your machine\'s spec. Default is ', 'c:bold', require('os').cpus().length);
+	_this.log('\t{concurrentDownloads} - Simultaneous Downloads. Default is ', 'c:bold', 8);
 	_this.log();
-	_this.log("./4chan.js \"http://boards.4chan.org/wg/thread/6581245\"");
+	_this.log('c:bold', 'Examples:');
+	_this.log('c:bold', "\t./4get.js \"http://boards.4chan.org/wg/thread/6581245\"");
 	_this.log("\t- Downloads a thread from wallpapers board. Media will be saved in ", "c:bold", "wg_6581245/");
-	_this.log("./4chan.js \"http://boards.4chan.org/wg/thread/6581245\" 8 16");
+	_this.log('c:bold',"\t./4get.js \"http://boards.4chan.org/wg/thread/6581245\" 8 16");
 	_this.log("\t- Supercharge your downloads across 8 cores using 16 simultaneous downloads");
+	_this.log();
+	_this.log('c:bold', '4get.js ( http://github.com/jthatch/4chan-get )');
 	_this.log();
 
 }
@@ -496,6 +497,8 @@ if (process.argv[1] == __filename) {
 	fourget.main();
 }
 else {
-	module.export = new Fourget();
+	//module.export = new Fourget();
+	exports.createFourget = function(options) {
+		return new Fourget(options);
+	}
 }
-
